@@ -1,0 +1,207 @@
+#!/bin/sh
+export POSIXLY_CORRECT=yes
+
+#directory
+DIR=$PWD
+FILE_ERE=''
+#number of directories
+DS=1
+#number of files
+AF=0
+normalize=0
+#size of file
+size=0
+compare=0
+
+size_A=0 # <100B
+size_B=0 # <1KiB
+size_C=0 # <10KiB
+size_D=0 # <100KiB
+size_E=0 # <1MiB
+size_F=0 # <10MiB
+size_G=0 # <100MiB
+size_H=0 # <1GiB
+size_I=0 # >=1GiB
+
+
+#input check
+case $1 in
+    -n) normalize=1
+        if [ $# -eq 2 ]; then
+            DIR="$2"
+        fi
+        ;;
+    -i) compare=1
+        FILE_ERE="$2"
+        if [ $# -eq 3 ]; then
+            if [ "$3" = -n ]; then
+                normalize=1
+            else
+                DIR="$3"
+            fi
+        fi
+        if [ $# -eq 4 ]; then
+            normalize=1
+            DIR="$4"
+        fi
+        ;;
+    *) if [ -d "$1" ]; then
+            DIR="$1"
+        fi
+        ;;
+esac
+
+if [ ! -d "$DIR" ]; then
+    echo " Directory '$DIR' does not exist. ">&2
+    exit 1
+fi     
+
+if [ "$FILE_ERE" ]; then
+	if printf '%s' "$DIR" | grep -qE "$FILE_ERE"; then
+		echo " FILE_ERE must not cover name of root directory. ">&2
+		exit 1
+	fi
+fi
+
+#check if it is directory or file
+folder_check()
+{
+    if [ -d "$1" ]; then
+        check=0
+    elif [ -f "$1" ]; then
+        check=1
+    fi
+}
+
+#size of file
+file_size()
+{
+    size=$(find "$1" -printf "%s")
+    if [ "$size" -lt 100 ]; then
+        size_A=$(expr "$size_A" + 1)
+    elif [ "$size" -lt 1024 ]; then
+        size_B=$(expr "$size_B" + 1)
+    elif [ "$size" -lt 10240 ]; then
+        size_C=$(expr "$size_C" + 1)
+    elif [ "$size" -lt 102400 ]; then
+        size_D=$(expr "$size_D" + 1)
+    elif [ "$size" -lt 1048576 ]; then
+        size_E=$(expr "$size_E" + 1)
+    elif [ "$size" -lt 10485760 ]; then
+        size_F=$(expr "$size_F" + 1)
+    elif [ "$size" -lt 104857600 ]; then
+        size_G=$(expr "$size_G" + 1)
+    elif [ "$size" -lt 1073741824 ]; then
+        size_H=$(expr "$size_H" + 1)
+    elif [ "$size" -ge 1073741824 ]; then
+        size_I=$(expr "$size_I" + 1)
+    fi
+}
+
+#recursivly goes through all folders and sorts if it is directory or file
+recursion()
+{
+    new_list=$(ls -A "$1")
+    for file in $new_list
+    do
+        if [ $compare -eq 1 ]; then
+            if printf "$file" | grep -qE "$FILE_ERE" ; then
+                continue
+            fi
+        fi
+        folder_check "$1"/"$file"
+        if [ "$check" -eq 0 ]; then
+            DS=$(expr "$DS" + 1)
+            recursion "$1"/"$file"
+        elif [ "$check" -eq 1 ]; then
+            AF=$(expr "$AF" + 1)
+            file_size "$1"/"$file"
+        fi
+    done
+}
+
+#cycle through folders
+list=$(ls -A "$DIR")
+IFS="
+"
+for file in $list
+do
+    if [ $compare -eq 1 ]; then
+        if printf "$file" | grep -qE "$FILE_ERE" ; then
+            continue
+        fi
+    fi
+    folder_check "$DIR"/"$file"
+    if [ "$check" -eq 0 ]; then
+        DS=$(expr "$DS" + 1)
+        recursion "$DIR"/"$file" #"$list" 
+    elif [ "$check" -eq 1 ]; then
+        AF=$(expr "$AF" + 1)
+        file_size "$DIR"/"$file"
+    fi
+done 
+
+#prints "#" in file histogram
+print_hash()
+{
+    if [ $normalize -eq 1 ]; then
+        terminal_length=$(tput cols)
+        if [ $terminal_length -lt $longest_line ]; then
+            result=`expr $1 \* \( $terminal_length - 13 \) / $longest_line`
+            seq 1 $result | xargs -I {} printf "#"
+        else
+            seq 1 $1 | xargs -I {} printf "#"
+        fi    
+    fi
+    if [ $normalize -eq 0 ]; then
+        seq 1 $1 | xargs -I {} printf "#"
+    fi 
+}
+
+#finds the longest line in histogram
+longest_line=0
+if [ $size_A -gt $longest_line ]; then
+    longest_line=$size_A
+fi
+if [ $size_B -gt $longest_line ]; then
+    longest_line=$size_B
+fi
+if [ $size_C -gt $longest_line ]; then
+    longest_line=$size_C
+fi
+if [ $size_D -gt $longest_line ]; then
+    longest_line=$size_D
+fi
+if [ $size_E -gt $longest_line ]; then
+    longest_line=$size_E
+fi
+if [ $size_F -gt $longest_line ]; then
+    longest_line=$size_F
+fi
+if [ $size_G -gt $longest_line ]; then
+    longest_line=$size_G
+fi
+if [ $size_H -gt $longest_line ]; then
+    longest_line=$size_H
+fi
+if [ $size_I -gt $longest_line ]; then
+    longest_line=$size_I
+fi
+
+#output
+echo "Root directory: $DIR"
+echo "Directories: $DS"
+echo "All files: $AF" 
+
+echo "File size histogram:"
+printf "  <100 B   : "; print_hash "$size_A" 
+printf "\n  <1 KiB   : "; print_hash "$size_B" 
+printf "\n  <10 KiB  : "; print_hash "$size_C" 
+printf "\n  <100 KiB : "; print_hash "$size_D" 
+printf "\n  <1 MiB   : "; print_hash "$size_E" 
+printf "\n  <10 MiB  : "; print_hash "$size_F" 
+printf "\n  <100 MiB : "; print_hash "$size_G" 
+printf "\n  <1 GiB   : "; print_hash "$size_H" 
+printf "\n  >=1 GiB  : "; print_hash "$size_I" 
+echo
+exit 0
